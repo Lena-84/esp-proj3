@@ -8,20 +8,20 @@
 #
 # Overview:
 # We estimate the number and locations of changepoints in the mean of
-# Poission-distributed observations using a smoothed LASSO penalty.
+# Poisson-distributed observations using a smoothed LASSO penalty.
 # BFGS is used for model fitting, and mBIC selects the penalty parameter.
 # Parametric bootstrap then assesses uncertainty, corrects estimation bias,
 # and constructs 95% confidence intervals for the mean function.
 
 ############ FUNCTIONS ############
 
-# poission_lasso_objective
-# Calculate the penalised negative Poission log-likelihood.
+# poisson_lasso_objective
+# Calculate the penalised negative Poisson log-likelihood.
 # beta controls the cumulative log-mean; beta[1] is not penalised.
-poission_lasso_objective<- function(beta, y, lambda=1, eps=1e-6){
+poisson_lasso_objective<- function(beta, y, lambda=1, eps=1e-6){
   #calculate the linear predictor
   eta<-cumsum(beta)
-  #convert log-mean to poission mean
+  #convert log-mean to poisson mean
   mu<-exp(eta)
   #calculate negative log-likelihood
   neg_loglik<--sum(dpois(y, lambda=mu, log=TRUE))
@@ -34,7 +34,7 @@ poission_lasso_objective<- function(beta, y, lambda=1, eps=1e-6){
 
 # Gradient of the smoothed LASSO objective
 # Reverse cumulative sums give the derivative of the negative log-likelihood.
-poission_lasso_grad <- function(beta, y, lambda=1, eps=1e-6) {
+poisson_lasso_grad <- function(beta, y, lambda=1, eps=1e-6) {
   # Calculate the linear predictor and mean
   eta <- cumsum(beta)
   mu <- exp(eta)
@@ -54,7 +54,7 @@ poission_lasso_grad <- function(beta, y, lambda=1, eps=1e-6) {
 # Hessian of the smoothed LASSO objective
 # Each entry sums the means from max(i,j) to n.
 # Reverse cumulative sums avoid repeated calculations.
-poission_lasso_hess <- function(beta, y, lambda=1, eps=1e-6) {
+poisson_lasso_hess <- function(beta, y, lambda=1, eps=1e-6) {
   
   eta <- cumsum(beta)
   mu <- exp(eta)
@@ -74,15 +74,15 @@ poission_lasso_hess <- function(beta, y, lambda=1, eps=1e-6) {
 }
 
 
-# Use BFGS to fit the Poission changepoint model for one penalty value.
+# Use BFGS to fit the Poisson changepoint model for one penalty value.
 # lambda is the penalty, y is the data and beta_init is the starting beta.
 # The optim result gives the fitted coefficients in $par and the status
 # in $convergence (0 means converged).
 fit_lasso <- function(lambda, y, beta_init) {
   fit <- optim(
     beta_init,
-    fn = poission_lasso_objective,
-    gr = poission_lasso_grad,
+    fn = poisson_lasso_objective,
+    gr = poisson_lasso_grad,
     y = y,
     lambda = lambda,
     method = "BFGS",
@@ -92,14 +92,14 @@ fit_lasso <- function(lambda, y, beta_init) {
 }
 
 ############ DATA SIMULATION ############
-# Simulate three Poission-mean segments with true changes at 30 and 70.
+# Simulate three Poisson-mean segments with true changes at 30 and 70.
 # Set the seed so that every group member reproduces the same data.
 set.seed(12345)
 
 n <- 100
 time <- 1:n
 
-# Define the true segment boundaries and Poission means.
+# Define the true segment boundaries and Poisson means.
 tau_true <- c(1, 30, 70, n+1)
 m_true <- length(tau_true)-2
 theta_true <- c(10, 2, 7)
@@ -111,20 +111,22 @@ for(i in seq_along(theta_true))
 
 y <- rpois(n, lambda = mu_true)
 
-# Plot simulated Poission observations and the true mean function.
+# Plot simulated Poisson observations and the true mean function.
 plot(time, y, pch = 16, col = "grey",
-     xlab = "Time", ylab = "Poission count",
-     main = "Simulated Poission Changepoint Data")
+     xlab = "Time", ylab = "Poisson count",
+     main = "Simulated Poisson Changepoint Data")
 
 lines(time, mu_true, col = "black", lwd = 2, type = "s")
 abline(v = tau_true[-c(1, length(tau_true))], lty = "dashed")
 
 
+
 ############ FUNCTION TESTS ############
 
 # At zero jumps the fitted mean equals the sample mean.
-beta_init <- c(log(mean(y)), rep(0, n-1))
-cat("Initial objective:", poission_lasso_objective(beta_init, y), "\n")
+beta_init <- c(log(mean(y)), rep(0, n - 1))
+cat("Initial objective:",
+    poisson_lasso_objective(beta_init, y), "\n")
 
 # Test both zero and non-zero jump coefficients using central differences.
 beta_test <- beta_init
@@ -133,77 +135,79 @@ beta_test[3] <- -0.3
 
 
 # Check all gradient entries using central finite differences.
-h <- 1e-5
+h_grad <- 1e-5
 grad_numeric <- numeric(n)
-grad_analytic <- poission_lasso_grad(beta_test, y)
+grad_analytic <- poisson_lasso_grad(beta_test, y)
 
 for (j in 1:n) {
   beta_plus <- beta_test
   beta_minus <- beta_test
   
-  beta_plus[j] <- beta_plus[j] + h
-  beta_minus[j] <- beta_minus[j] - h
+  beta_plus[j] <- beta_plus[j] + h_grad
+  beta_minus[j] <- beta_minus[j] - h_grad
   
   grad_numeric[j] <- (
-    poission_lasso_objective(beta_plus, y) -
-      poission_lasso_objective(beta_minus, y)
-  ) / (2*h)
+    poisson_lasso_objective(beta_plus, y) -
+      poisson_lasso_objective(beta_minus, y)
+  ) / (2 * h_grad)
 }
 
 cat("Maximum gradient absolute error:",
     max(abs(grad_numeric - grad_analytic)), "\n")
 
-# Verify Hessian dimensions, symmetry, finiteness, and all columns by
-# central differences of the gradient.
-H_test <- poission_lasso_hess(beta_test, y)
+
+# Verify Hessian dimensions, symmetry, finiteness, and all columns
+# using central differences of the gradient.
+H_test <- poisson_lasso_hess(beta_test, y)
+
 cat("Hessian dimensions:", dim(H_test), "\n")
 cat("Hessian symmetric:", isSymmetric(H_test), "\n")
 cat("Hessian finite:", all(is.finite(H_test)), "\n")
 
-h <- 1e-6
-errors <- numeric(n)
+h_hess <- 1e-6
+hess_column_errors <- numeric(n)
+
 for (j in 1:n) {
   beta_plus <- beta_test
   beta_minus <- beta_test
-  beta_plus[j] <- beta_plus[j] + h
-  beta_minus[j] <- beta_minus[j] - h
+  
+  beta_plus[j] <- beta_plus[j] + h_hess
+  beta_minus[j] <- beta_minus[j] - h_hess
   
   hess_numeric <- (
-    poission_lasso_grad(beta_plus, y) -
-      poission_lasso_grad(beta_minus, y)
-  ) / (2*h)
-  errors[j] <- max(abs(hess_numeric - H_test[,j]))
+    poisson_lasso_grad(beta_plus, y) -
+      poisson_lasso_grad(beta_minus, y)
+  ) / (2 * h_hess)
+  
+  hess_column_errors[j] <- max(
+    abs(hess_numeric - H_test[, j])
+  )
 }
-cat("Maximum Hessian absolute error:", max(errors), "\n")
+
+cat("Maximum Hessian absolute error:",
+    max(hess_column_errors), "\n")
 
 
 ############ INITIAL BFGS FIT ############
 
-# Fit with lambda = 1 and check the optimiser's convergence code.
-fit <- optim(
-  par=beta_init,
-  fn=poission_lasso_objective,
-  gr=poission_lasso_grad,
-  y=y,
-  lambda=1,
-  method="BFGS",
-  control=list(maxit=1000, reltol=1e-9)
-)
-cat("Q3 convergence:", fit$convergence, "\n")
-cat("Q3 objective:", fit$value, "\n")
+# Fit the Poisson changepoint model using BFGS with lambda = 1.
+fit_q3 <- fit_lasso(1, y, beta_init)
 
-beta_hat <- fit$par
-mu_hat <- exp(cumsum(beta_hat))
+cat("Q3 convergence:", fit_q3$convergence, "\n")
+cat("Q3 objective:", fit_q3$value, "\n")
+
+beta_hat_q3 <- fit_q3$par
+mu_hat_q3 <- exp(cumsum(beta_hat_q3))
 
 # Compare fitted means with the true piecewise mean and observed counts.
 
 plot(time, y, pch=16, col="grey",
-     xlab="Time", ylab="Poission count",
-     main="Poission Changepoint Model (lambda = 1)")
+     xlab="Time", ylab="Poisson count",
+     main="Poisson Changepoint Model (lambda = 1)")
 lines(time, mu_true, col="black", lwd=2, type="s")
-lines(time, mu_hat, col="red", lwd=2, type="s")
+lines(time, mu_hat_q3, col="red", lwd=2, type="s")
 legend("topright",
-       legend=c("Observed data", "True mean", "Estimated mean"),
+       legend=c("Data", "True mean", "Estimated mean"),
        col=c("grey", "black", "red"),
        pch=c(16, NA, NA),
        lty=c(NA, 1, 1),
@@ -212,9 +216,6 @@ legend("topright",
 
 
 ############ PENALTY GRID SEARCH AND mBIC ############
-
-# Start with a constant mean equal to the sample mean and zero jumps.
-beta_init <- c(log(mean(y)), rep(0, n - 1))
 
 # Grid of penalty values to try, equally spaced on the log scale.
 log_lambda <- seq(-1, 5, by = 0.05)
@@ -229,14 +230,19 @@ conv <- integer(n_grid)      # convergence code, 0 means converged
 
 # Fit and score the model for each penalty value.
 for (i in seq_len(n_grid)) {
-  fit <- fit_lasso(lambda_grid[i], y, beta_init)
-  conv[i] <- fit$convergence
-  beta_hat <- fit$par
+  fit_grid <- fit_lasso(lambda_grid[i], y, beta_init)
+  conv[i] <- fit_grid$convergence
+  beta_hat_grid <- fit_grid$par
   
   # Evaluate both Hessians at the same fitted coefficients,
   # with the penalty (H_lambda) and without it (H_0).
-  H_lambda <- poission_lasso_hess(beta_hat, y, lambda = lambda_grid[i])
-  H_0 <- poission_lasso_hess(beta_hat, y, lambda = 0)
+  H_lambda <- poisson_lasso_hess(
+    beta_hat_grid, y, lambda = lambda_grid[i]
+  )
+  
+  H_0 <- poisson_lasso_hess(
+    beta_hat_grid, y, lambda = 0
+  )
   
   # Solve H_lambda %*% A = H_0, then add the diagonal entries of A.
   # This gives the effective degrees of freedom, a measure of model
@@ -245,7 +251,9 @@ for (i in seq_len(n_grid)) {
   
   # With lambda = 0 the cost is the negative log-likelihood at beta_hat,
   # so change the sign to get the log-likelihood.
-  loglik <- -poission_lasso_objective(beta_hat, y, lambda = 0)
+  loglik <- -poisson_lasso_objective(
+    beta_hat_grid, y, lambda = 0
+  )
   
   # Remove one degree of freedom for the baseline log-mean.
   m_tilde[i] <- edf[i] - 1
@@ -275,16 +283,16 @@ if (fit_best$convergence != 0) {
 beta_best <- fit_best$par
 
 # The running sum gives the log-mean at each time point.
-mu_hat <- exp(cumsum(beta_best))
+mu_hat_best <- exp(cumsum(beta_best))
 
 # Compare the fitted mean with the true mean and the observed counts.
 
 plot(
-  time, y, pch = 16, col = "grey", xlab = "Time", ylab = "y",
+  time, y, pch = 16, col = "grey", xlab = "Time", ylab = "Poisson count",
   main = "True and estimated mean function"
 )
 lines(time, mu_true, col = "black", lwd = 2, type = "s")
-lines(time, mu_hat, col = "red", lwd = 2, type = "s")
+lines(time, mu_hat_best, col = "red", lwd = 2, type = "s")
 legend(
   "topright",
   legend = c("Data", "True mean", "Estimated mean"),
@@ -321,24 +329,24 @@ cat("Estimated changepoint locations =", tau_hat, "\n")
 
 
 ############ PARAMETRIC BOOTSTRAP AND CONFIDENCE INTERVALS ############
-# The fitted mean mu_hat is both biased (the penalty shrinks the jumps) and 
-# uncertain. To measure this we treat mu_hat as the true mean, simulate B new 
-# datasets from it, refit with the selected penalty, and see how the B fitted
-# means differ from mu_hat. Row b of mu_boot is the b-th fitted mean.
+# The selected fitted mean mu_hat_best is both biased and uncertain.
+# We treat it as the true mean, simulate B new datasets from it,
+# refit each dataset using the selected penalty, and store the
+# resulting fitted means in mu_boot.
 B <- 200
 mu_boot <- matrix(NA, nrow = B, ncol = n)
 conv_boot <- integer(B)
 # Fix the seed so the bootstrap results are reproducible.
 set.seed(2026)
 for (b in 1:B) {
-  # Simulate a new dataset of Poission counts from the fitted mean 
-  y_sim <- rpois(n, lambda = mu_hat)
+  # Simulate a new dataset of Poisson counts from the fitted mean 
+  y_boot_sim <- rpois(n, lambda = mu_hat_best)
   # Start from a constant mean equal to the simulated sample mean, no jumps 
-  beta_init_sim <- c(log(mean(y_sim)), rep(0, n - 1))
-  fit_b <- fit_lasso(lambda_hat, y_sim, beta_init_sim)
-  conv_boot[b] <- fit_b$convergence 
+  beta_init_boot <- c(log(mean(y_boot_sim)), rep(0, n - 1))
+  fit_boot <- fit_lasso(lambda_hat, y_boot_sim, beta_init_boot)
+  conv_boot[b] <- fit_boot$convergence 
   # Convert the fitted coefficients to a mean function and store it
-  mu_boot[b, ] <- exp(cumsum(fit_b$par))
+  mu_boot[b, ] <- exp(cumsum(fit_boot$par))
 }
 
 if (any(conv_boot != 0)) {
@@ -346,18 +354,18 @@ if (any(conv_boot != 0)) {
 }
 
 # Average bootstrap mean at each time point (colMeans averages each column).
-mu_bar <- colMeans(mu_boot)
+mu_bar_boot <- colMeans(mu_boot)
 
-# Plot mu_hat against mu_bar. mu_bar is further from the truth than mu_hat,
-# because refitting shrinks the jumps a second time.
+# Compare the selected fitted mean and the bootstrap average
+# to illustrate the shrinkage bias introduced by refitting.
 
 plot(
-  time, y, pch = 16, col = "grey", xlab = "Time", ylab = "Poission count",
+  time, y, pch = 16, col = "grey", xlab = "Time", ylab = "Poisson count",
   main = "Estimated and average bootstrap mean function"
 )
 lines(time, mu_true, col = "black", lwd = 2, type = "s")
-lines(time, mu_hat, col = "red", lwd = 2, type = "s")
-lines(time, mu_bar, col = "blue", lwd = 2, type = "s")
+lines(time, mu_hat_best, col = "red", lwd = 2, type = "s")
+lines(time, mu_bar_boot, col = "blue", lwd = 2, type = "s")
 legend(
   "topright",
   legend = c("Data", "True mean", "Estimated mean", "Bootstrap average"),
@@ -371,20 +379,20 @@ legend(
 # mu_bar - mu_hat estimates the bias of the method. Assuming the same bias
 # separates mu_hat from the true mean, remove it once more from mu_hat:
 # mu_bc = mu_hat - (mu_bar - mu_hat) = 2 mu_hat - mu_bar.
-mu_bc <- 2 * mu_hat - mu_bar
+mu_bc <- 2 * mu_hat_best - mu_bar_boot
 
 # 2.5% and 97.5% quantiles of the B bootstrap means at each time point
 # (apply with 2 runs quantile on every column of mu_boot).
-q_L <- apply(mu_boot, 2, quantile, probs = 0.025)
-q_U <- apply(mu_boot, 2, quantile, probs = 0.975)
+q_L_boot <- apply(mu_boot, 2, quantile, probs = 0.025)
+q_U_boot <- apply(mu_boot, 2, quantile, probs = 0.975)
 
 # Basic bootstrap confidence interval: reflect the quantiles about mu_hat, 
 # in the same way as mu_bc. If mu_hat^(b) - mu_hat behaves like mu_hat - mu, 
 # the true mean lies in [2 mu_hat - q_U, 2 mu_hat - q_L] with about 95% 
 # probability.
-q_L_bc <- 2 * mu_hat - q_U
-q_U_bc <- 2 * mu_hat - q_L
-# A Poission mean cannot be negative, so set negative lower bounds to zero 
+q_L_bc <- 2 * mu_hat_best - q_U_boot
+q_U_bc <- 2 * mu_hat_best - q_L_boot
+# A Poisson mean cannot be negative, so set negative lower bounds to zero 
 # (pmax takes the element-wise maximum).
 q_L_bc <- pmax(q_L_bc, 0)
 
@@ -399,7 +407,7 @@ y_max <- 1.35 * max(y, q_U_bc)
 
 plot(
   time, y, pch = 16, col = "grey", ylim = c(0, y_max),
-  xlab = "Time", ylab = "Poission count",
+  xlab = "Time", ylab = "Poisson count",
   main = "Bias corrected mean function with 95% confidence interval"
 )
 
@@ -413,7 +421,7 @@ points(time, y, pch = 16, col = "grey")
 lines(time, q_L_bc, col = "darkorange", lty = 2, type = "s")
 lines(time, q_U_bc, col = "darkorange", lty = 2, type = "s")
 lines(time, mu_true, col = "black", lwd = 2, type = "s")
-lines(time, mu_hat, col = "red", lwd = 2, type = "s")
+lines(time, mu_hat_best, col = "red", lwd = 2, type = "s")
 lines(time, mu_bc, col = "blue", lwd = 2, type = "s")
 # One entry per element; NA means no point symbol or no line for that entry.
 legend(
