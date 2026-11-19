@@ -298,5 +298,106 @@ cat("Estimated number of changepoints =", m_hat, "\n")
 cat("Estimated changepoint locations =", tau_hat, "\n")
 
 
-
 ############ PARAMETRIC BOOTSTRAP AND CONFIDENCE INTERVALS ############
+# The fitted mean mu_hat is both biased (the penalty shrinks the jumps) and 
+# uncertain. To measure this we treat mu_hat as the true mean, simulate B new 
+# datasets from it, refit with the selected penalty, and see how the B fitted
+# means differ from mu_hat. Row b of mu_boot is the b-th fitted mean.
+B <- 200
+mu_boot <- matrix(NA, nrow = B, ncol = n)
+conv_boot <- integer(B)
+# Fix the seed so the bootstrap results are reproducible.
+set.seed(2026)
+for (b in 1:B) {
+  # Simulate a new dataset of Poisson counts from the fitted mean 
+  y_sim <- rpois(n, lambda = mu_hat)
+  # Start from a constant mean equal to the simulated sample mean, no jumps 
+  beta_init_sim <- c(log(mean(y_sim)), rep(0, n - 1))
+  fit_b <- fit_lasso(lambda_hat, y_sim, beta_init_sim)
+  conv_boot[b] <- fit_b$convergence 
+  # Convert the fitted coefficients to a mean function and store it
+  mu_boot[b, ] <- exp(cumsum(fit_b$par))
+}
+
+if (any(conv_boot != 0)) {
+  warning(sum(conv_boot != 0), " bootstrap fits did not converge")
+}
+
+# Average bootstrap mean at each time point (colMeans averages each column).
+mu_bar <- colMeans(mu_boot)
+
+# Plot mu_hat against mu_bar. mu_bar is further from the truth than mu_hat,
+# because refitting shrinks the jumps a second time.
+plot(
+  time, y, pch = 16, col = "grey", xlab = "Time", ylab = "Poisson count",
+  main = "Estimated and average bootstrap mean function"
+)
+lines(time, mu_true, col = "black", lwd = 2, type = "s")
+lines(time, mu_hat, col = "red", lwd = 2, type = "s")
+lines(time, mu_bar, col = "blue", lwd = 2, type = "s")
+legend(
+  "topright",
+  legend = c("Data", "True mean", "Estimated mean", "Bootstrap average"),
+  col = c("grey", "black", "red", "blue"),
+  pch = c(16, NA, NA, NA),
+  lty = c(NA, 1, 1, 1),
+  lwd = c(NA, 2, 2, 2),
+  bty = "n"
+)
+
+# mu_bar - mu_hat estimates the bias of the method. Assuming the same bias
+# separates mu_hat from the true mean, remove it once more from mu_hat:
+# mu_bc = mu_hat - (mu_bar - mu_hat) = 2 mu_hat - mu_bar.
+mu_bc <- 2 * mu_hat - mu_bar
+
+# 2.5% and 97.5% quantiles of the B bootstrap means at each time point
+# (apply with 2 runs quantile on every column of mu_boot).
+q_L <- apply(mu_boot, 2, quantile, probs = 0.025)
+q_U <- apply(mu_boot, 2, quantile, probs = 0.975)
+
+# Basic bootstrap confidence interval: reflect the quantiles about mu_hat, 
+# in the same way as mu_bc. If mu_hat^(b) - mu_hat behaves like mu_hat - mu, 
+# the true mean lies in [2 mu_hat - q_U, 2 mu_hat - q_L] with about 95% 
+# probability.
+q_L_bc <- 2 * mu_hat - q_U
+q_U_bc <- 2 * mu_hat - q_L
+# A Poisson mean cannot be negative, so set negative lower bounds to zero 
+# (pmax takes the element-wise maximum).
+q_L_bc <- pmax(q_L_bc, 0)
+
+# Proportion of time points where the true mean lies inside the 95% band.
+cat("Bias corrected 95% CI coverage of the true mean:",
+    mean(mu_true >= q_L_bc & mu_true <= q_U_bc), "\n")
+
+############ FINAL PLOT ############
+
+# Leave space at the top of the plot so the legend does not cover the data.
+y_max <- 1.35 * max(y, q_U_bc)
+plot(
+  time, y, pch = 16, col = "grey", ylim = c(0, y_max),
+  xlab = "Time", ylab = "Poisson count",
+  main = "Bias corrected mean function with 95% confidence interval"
+)
+
+# Shade the 95% band: polygon traces the lower bound left to right, then the 
+# upper bound right to left (rev reverses a vector) to close the shape.
+# adjustcolor makes the fill semi-transparent.
+polygon(c(time, rev(time)), c(q_L_bc, rev(q_U_bc)),
+        col = adjustcolor("orange", alpha.f = 0.25), border = NA)
+# type = "s" draws step lines, matching a mean that jumps between levels.
+lines(time, q_L_bc, col = "darkorange", lty = 2, type = "s")
+lines(time, q_U_bc, col = "darkorange", lty = 2, type = "s")
+lines(time, mu_true, col = "black", lwd = 2, type = "s")
+lines(time, mu_hat, col = "red", lwd = 2, type = "s")
+lines(time, mu_bc, col = "blue", lwd = 2, type = "s")
+# One entry per element; NA means no point symbol or no line for that entry.
+legend(
+  "topright",
+  legend = c("Data", "True mean", "Estimated mean",
+             "Bias corrected mean", "Bias corrected 95% CI"),
+  col = c("grey", "black", "red", "blue", "darkorange"),
+  pch = c(16, NA, NA, NA, NA),
+  lty = c(NA, 1, 1, 1, 2),
+  lwd = c(NA, 2, 2, 2, 1),
+  bty = "n", cex = 0.85
+)
