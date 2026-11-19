@@ -17,18 +17,18 @@
 
 # poisson_lasso_objective
 # Calculate the penalised negative Poisson log-likelihood.
-# beta controls the cumulative log-mean; beta[1] is not penalised.
-poisson_lasso_objective<- function(beta, y, lambda=1, eps=1e-6){
-  #calculate the linear predictor
-  eta<-cumsum(beta)
-  #convert log-mean to poisson mean
-  mu<-exp(eta)
-  #calculate negative log-likelihood
-  neg_loglik<--sum(dpois(y, lambda=mu, log=TRUE))
-  #calculate the smoothed LASSO penalty
-  penalty<-lambda*sum(sqrt(beta[-1]^2+eps))
-  # Calculate the total penalised objective
+# beta defines the cumulative log-mean, with beta[1] as the
+# unpenalised baseline and the remaining coefficients as jumps.
+poisson_lasso_objective <- function(beta, y, lambda = 1, eps = 1e-6) {
+  
+  eta <- cumsum(beta)
+  mu <- exp(eta)
+  
+  # Combine the negative log-likelihood and smoothed LASSO penalty.
+  neg_loglik <- -sum(dpois(y, lambda = mu, log = TRUE))
+  penalty <- lambda * sum(sqrt(beta[-1]^2 + eps))
   objective <- neg_loglik + penalty
+  
   return(objective)
 }
 
@@ -249,7 +249,8 @@ for (i in seq_len(n_grid)) {
   # flexibility.
   edf[i] <- sum(diag(solve(H_lambda, H_0)))
   
-  # With lambda = 0 the cost is the negative log-likelihood at beta_hat,
+  # With lambda = 0, the objective is the negative log-likelihood
+  # evaluated at the fitted coefficients beta_hat_grid.
   # so change the sign to get the log-likelihood.
   loglik <- -poisson_lasso_objective(
     beta_hat_grid, y, lambda = 0
